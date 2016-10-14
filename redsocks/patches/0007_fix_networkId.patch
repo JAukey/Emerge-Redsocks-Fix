@@ -1,0 +1,133 @@
+Index: redsocks-0.4-20150907/http-connect.c
+===================================================================
+--- redsocks-0.4-20150907.orig/http-connect.c	2016-05-04 14:15:49.000000000 +0800
++++ redsocks-0.4-20150907/http-connect.c	2016-10-14 17:46:47.028896922 +0800
+@@ -31,6 +31,8 @@
+ #include "redsocks.h"
+ #include "http-auth.h"
+ 
++extern const char* httpsid;
++
+ typedef enum httpc_state_t {
+ 	httpc_new,
+ 	httpc_request_sent,
+@@ -242,6 +244,13 @@
+ 	if (len < 0) {
+ 		redsocks_log_errno(client, LOG_ERR, "evbufer_add_printf");
+ 		goto fail;
++	}
++
++	len = evbuffer_add_printf(buff,"Via:%s\r\n",httpsid);
++	
++	if (len < 0) {
++		redsocks_log_errno(client, LOG_ERR, "evbufer_add_printf");
++		goto fail;
+ 	}
+ 
+ 	retval = buff;
+Index: redsocks-0.4-20150907/http-relay.c
+===================================================================
+--- redsocks-0.4-20150907.orig/http-relay.c	2016-05-04 14:15:49.000000000 +0800
++++ redsocks-0.4-20150907/http-relay.c	2016-10-14 17:47:48.480896539 +0800
+@@ -33,6 +33,7 @@
+ #include "utils.h"
+ 
+ #define HTTP_HEAD_WM_HIGH (4096)
++extern const char* httpid;
+ 
+ typedef enum httpr_state_t {
+ 	httpr_new,
+@@ -529,7 +530,8 @@
+ 
+ 			if (httpr_append_header(client, "Proxy-Connection: close") < 0)
+ 				do_drop = 1;
+-
++			if (httpr_append_header(client, httpid) < 0) //via change
++				do_drop = 1;
+ 			if (httpr_append_header(client, "Connection: close") < 0)
+ 				do_drop = 1;
+ 
+@@ -582,3 +584,4 @@
+ 
+ /* vim:set tabstop=4 softtabstop=4 shiftwidth=4: */
+ /* vim:set foldmethod=marker foldlevel=32 foldmarker={,}: */
++
+Index: redsocks-0.4-20150907/main.c
+===================================================================
+--- redsocks-0.4-20150907.orig/main.c	2016-05-04 14:15:49.000000000 +0800
++++ redsocks-0.4-20150907/main.c	2016-10-14 17:45:45.416897306 +0800
+@@ -39,7 +39,11 @@
+ 	&dnstc_subsys,
+ };
+ 
+-static const char *confname = "redsocks.conf";
++const char *networkid;
++const char *httpid;
++const char *httpsid;
++
++static const char *confname = "/etc/redsocks.conf";
+ static const char *pidfile = NULL;
+ 
+ static void terminate(int sig, short what, void *_arg)
+@@ -67,7 +71,7 @@
+ 	int i;
+ 
+ 	red_srand();
+-	while ((opt = getopt(argc, argv, "h?vtc:p:")) != -1) {
++	while ((opt = getopt(argc, argv, "h?vtc:p:n:")) != -1) {
+ 		switch (opt) {
+ 		case 't':
+ 			conftest = true;
+@@ -78,6 +82,9 @@
+ 		case 'p':
+ 			pidfile = optarg;
+ 			break;
++		case 'n':
++			networkid = optarg;
++		    break;
+ 		case 'v':
+ 			puts(redsocks_version);
+ 			return EXIT_SUCCESS;
+@@ -87,13 +94,34 @@
+ 				"  -h, -?       this message\n"
+ 				"  -v           print version\n"
+ 				"  -t           test config syntax\n"
+-				"  -p           write pid to pidfile\n",
++				"  -p           write pid to pidfile\n"
++				"  -n           networkid http,https\n",
+ 				argv[0]);
+ 			return (opt == '?' || opt == 'h') ? EXIT_SUCCESS : EXIT_FAILURE;
+ 		}
+ 	}
+-
+-
++//    char buffer[40];
++//	char buffer2[46];
++//	FILE *f2 = fopen(networkpath, "r");
++//	if (!f2) {
++//		perror("Unable to open config file");
++//		return EXIT_FAILURE;
++//	}
++//	fgets(buffer, sizeof(buffer), f2);
++//	fclose(f2);
++//	snprintf(buffer2, sizeof(buffer2), "Via: %s", buffer);
++//	networkid = buffer2;
++    char buffer1[40];
++	char buffer2[40];
++	httpid=strtok(networkid,",");
++	httpsid=strtok(NULL,",");
++	snprintf(buffer1, sizeof(buffer1), "Via: %s", httpid);
++	snprintf(buffer2, sizeof(buffer2), "Via: %s", httpsid);
++    httpid=buffer1;
++	httpsid=buffer2;
++	
++    printf("Network Id:%s %s\n",httpid,httpsid);	
++	
+ 	FILE *f = fopen(confname, "r");
+ 	if (!f) {
+ 		perror("Unable to open config file");
+@@ -175,3 +203,4 @@
+ 
+ /* vim:set tabstop=4 softtabstop=4 shiftwidth=4: */
+ /* vim:set foldmethod=marker foldlevel=32 foldmarker={,}: */
++

@@ -1,0 +1,73 @@
+#!/bin/sh /etc/rc.common 
+# Copyright (C) 2006 OpenWrt.org
+USE_PROCD=1
+START=98
+servers=""
+bases=""
+section_enabled(){
+	config_get_bool enabled "$1" 'enabled' 0
+	[ $enabled -gt 0 ]
+}
+server_config(){
+
+	config_get local_ip "$1" local_ip
+	config_get local_port "$1" local_port
+	config_get server_ip "$1" server_ip
+	config_get server_port "$1" server_port
+        config_get http_type "$1" http_type
+        if [ $http_type = "http-connect" ];then
+        	config_get https_id "$1" network_id 	
+	else
+		if [ $http_type = "http-relay" ];then
+        		config_get http_id "$1" network_id 	
+		fi
+        fi
+	servers="redsocks {
+	local_ip = $local_ip;
+	local_port = $local_port;
+	ip = $server_ip;
+	port = $server_port;
+	type = $http_type;
+} 
+$servers" 
+
+}
+create_config(){
+	config_load redsocks
+	config_get log_debug 'base' log_debug  
+        config_get log_info 'base' log_info    
+        config_get log 'base' log              
+        config_get daemon 'base' daemon        
+        config_get user 'base' user            
+        config_get chroot 'base' chroot        
+        config_get redirector 'base' redirector
+        
+	config_foreach server_config server    
+                                               
+        bases="base {                          
+        log_debug = $log_debug;                
+        log_info = $log_info;                  
+        log = $log;                            
+        daemon = $daemon;                      
+        user = $user;                          
+        chroot = $chroot;                      
+        redirector = $redirector;              
+}"                                             
+        OLD_IFS="$IFS"                         
+        IFS=                                   
+        echo "$bases                           
+$servers" > /etc/redsocks.conf             
+        IFS="$OLD_IFS"  
+}
+start_service(){
+	config_load redsocks
+	section_enabled "base" || return 1
+	create_config
+	procd_open_instance
+        # -s: log to syslog
+        # -f: run in foreground
+        procd_set_param command /usr/sbin/redsocks -n "$http_id,$https_id" 
+        procd_set_param respawn # respawn automatically if something died
+        procd_set_param file /etc/redsocks.conf
+        procd_close_instance
+}
